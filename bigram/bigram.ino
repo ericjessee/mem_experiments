@@ -22,6 +22,44 @@ const int CLK_DIN = 8;    // Clock for data input shift register
 const int WE = 9;         // Write Enable for SRAM
 const int OE_SRAM = 10;   // Output Enable for SRAM
 
+void testMemoryRegion(uint16_t startAddress, uint16_t endAddress) {
+  uint16_t rangeSize = endAddress - startAddress + 1;
+
+  // Generate and write random pattern
+  Serial.print("Writing test pattern to range 0x");
+  Serial.print(startAddress, HEX);
+  Serial.print(" to 0x");
+  Serial.println(endAddress, HEX);
+
+  for (uint16_t i = 0; i < rangeSize; i++) {
+    uint8_t randomValue = (uint8_t)random(0, 256);  // Generate random value
+    testPattern[i] = randomValue;                   // Store it locally
+    writeData(startAddress + i, randomValue);       // Write to memory
+  }
+
+  // Read back and verify
+  Serial.println("Verifying test pattern...");
+  bool testPassed = true;
+  for (uint16_t i = 0; i < rangeSize; i++) {
+    uint8_t readValue = readData(startAddress + i);
+    if (readValue != testPattern[i]) {
+      testPassed = false;
+      Serial.print("Mismatch at 0x");
+      Serial.print(startAddress + i, HEX);
+      Serial.print(": expected 0x");
+      Serial.print(testPattern[i], HEX);
+      Serial.print(", got 0x");
+      Serial.println(readValue, HEX);
+    }
+  }
+
+  if (testPassed) {
+    Serial.println("Test passed: no errors found.");
+  } else {
+    Serial.println("Test failed: errors detected.");
+  }
+}
+
 // Shift out data function
 void shiftOutData(int dataPin, int clockPin, int bitOrder, uint8_t val) {
   for (int i = 0; i < 8; i++)  {
@@ -112,46 +150,31 @@ void processCommand(String command) {
         Serial.println("Invalid address range.");
         return;
       }
-      
-      uint16_t rangeSize = endAddress - startAddress + 1;
-      if (rangeSize > MAX_TEST_SIZE) {
+
+      if ((endAddress - startAddress + 1) > MAX_TEST_SIZE) {
         Serial.println("Test range too large.");
         return;
       }
 
-      // Generate and write random pattern
-      Serial.println("Writing test pattern...");
-      for (uint16_t i = 0; i < rangeSize; i++) {
-        uint8_t randomValue = (uint8_t)random(0, 256);  // Generate random value
-        testPattern[i] = randomValue;                   // Store it locally
-        writeData(startAddress + i, randomValue);       // Write to memory
-        delayMicroseconds(1);
-      }
-      
-      // Read back and verify
-      Serial.println("Verifying test pattern...");
-      bool testPassed = true;
-      for (uint16_t i = 0; i < rangeSize; i++) {
-        uint8_t readValue = readData(startAddress + i);
-        if (readValue != testPattern[i]) {
-          testPassed = false;
-          Serial.print("Mismatch at 0x");
-          Serial.print(startAddress + i, HEX);
-          Serial.print(": expected 0x");
-          Serial.print(testPattern[i], HEX);
-          Serial.print(", got 0x");
-          Serial.println(readValue, HEX);
-        }
+      // Call the helper function
+      testMemoryRegion(startAddress, endAddress);
+    }
+  } else if (command.startsWith("alltest")) {
+    uint16_t totalStart = 0x0000;
+    uint16_t totalEnd = 0x39FF;
+    uint16_t chunkSize = MAX_TEST_SIZE;
+    Serial.println("test");
+    for (uint16_t startAddress = totalStart; startAddress <= totalEnd; startAddress += chunkSize) {
+      uint16_t endAddress = startAddress + chunkSize - 1;
+      if (endAddress > totalEnd) {
+        endAddress = totalEnd;
       }
 
-      if (testPassed) {
-        Serial.println("Test passed: no errors found.");
-      } else {
-        Serial.println("Test failed: errors detected.");
-      }
-    } else {
-      Serial.println("Invalid test command format.");
+      // Call the helper function for each chunk
+      testMemoryRegion(startAddress, endAddress);
     }
+
+    Serial.println("Full RAM test complete.");
   } else {
     Serial.println("Invalid command.");
   }

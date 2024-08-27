@@ -1,3 +1,9 @@
+#include <stdlib.h> // Required for random number generation
+
+// Define maximum memory size for the test buffer
+#define MAX_TEST_SIZE 512
+
+uint8_t testPattern[MAX_TEST_SIZE]; // Buffer to store the test pattern
 // Pin Assignments
 const int SER_ADDR = 2;   // Serial data input for address
 const int RCLK_ADDR = 3;  // Storage register clock (latch) for address
@@ -84,11 +90,10 @@ void processCommand(String command) {
     Serial.print(": 0x");
     Serial.println(data, HEX);
   } else if (command.startsWith("write")) {
-    // Find the position of the first space after the command keyword
     int spaceIndex = command.indexOf(' ', 6); 
     if (spaceIndex > 0) {
-      uint16_t address = (uint16_t)strtol(&command[6], NULL, 16); // Extract the address
-      uint8_t data = (uint8_t)strtol(&command[spaceIndex + 1], NULL, 16); // Extract the data
+      uint16_t address = (uint16_t)strtol(&command[6], NULL, 16);
+      uint8_t data = (uint8_t)strtol(&command[spaceIndex + 1], NULL, 16);
       writeData(address, data);
       Serial.print("Written 0x");
       Serial.print(data, HEX);
@@ -96,6 +101,56 @@ void processCommand(String command) {
       Serial.println(address, HEX);
     } else {
       Serial.println("Invalid write command format.");
+    }
+  } else if (command.startsWith("test")) {
+    int spaceIndex = command.indexOf(' ', 5);
+    if (spaceIndex > 0) {
+      uint16_t startAddress = (uint16_t)strtol(&command[5], NULL, 16);
+      uint16_t endAddress = (uint16_t)strtol(&command[spaceIndex + 1], NULL, 16);
+      
+      if (startAddress > endAddress) {
+        Serial.println("Invalid address range.");
+        return;
+      }
+      
+      uint16_t rangeSize = endAddress - startAddress + 1;
+      if (rangeSize > MAX_TEST_SIZE) {
+        Serial.println("Test range too large.");
+        return;
+      }
+
+      // Generate and write random pattern
+      Serial.println("Writing test pattern...");
+      for (uint16_t i = 0; i < rangeSize; i++) {
+        uint8_t randomValue = (uint8_t)random(0, 256);  // Generate random value
+        testPattern[i] = randomValue;                   // Store it locally
+        writeData(startAddress + i, randomValue);       // Write to memory
+        delayMicroseconds(1);
+      }
+      
+      // Read back and verify
+      Serial.println("Verifying test pattern...");
+      bool testPassed = true;
+      for (uint16_t i = 0; i < rangeSize; i++) {
+        uint8_t readValue = readData(startAddress + i);
+        if (readValue != testPattern[i]) {
+          testPassed = false;
+          Serial.print("Mismatch at 0x");
+          Serial.print(startAddress + i, HEX);
+          Serial.print(": expected 0x");
+          Serial.print(testPattern[i], HEX);
+          Serial.print(", got 0x");
+          Serial.println(readValue, HEX);
+        }
+      }
+
+      if (testPassed) {
+        Serial.println("Test passed: no errors found.");
+      } else {
+        Serial.println("Test failed: errors detected.");
+      }
+    } else {
+      Serial.println("Invalid test command format.");
     }
   } else {
     Serial.println("Invalid command.");
@@ -121,6 +176,7 @@ void setup() {
   pinMode(OE_SRAM, OUTPUT);
   
   Serial.begin(9600);  // Start serial communication
+  randomSeed(analogRead(0)); // Seed the random number generator
 }
 
 // Main loop

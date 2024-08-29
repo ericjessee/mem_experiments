@@ -2,8 +2,20 @@
 
 // Define maximum memory size for the test buffer
 #define MAX_TEST_SIZE 512
+#define RAM_START_ADDRESS 0x0000
+#define RAM_END_ADDRESS 0x39FF
+
+#define TSETTLE 1
 
 uint8_t testPattern[MAX_TEST_SIZE]; // Buffer to store the test pattern
+
+// Static array to be loaded into memory
+static const unsigned char pgm[] = {
+    0x0E, 0x00, 0x04, 0x3A, 0x16, 0x00, 0xB8, 0xC2, 0x02, 0x00, 0x0C, 0x2A, 
+    0x14, 0x00, 0x71, 0x06, 0x00, 0xC3, 0x02, 0x00, 0x78, 0x00, 0x04, 
+};
+const uint16_t pgmSize = sizeof(pgm);
+
 // Pin Assignments
 const int SER_ADDR = 2;   // Serial data input for address
 const int RCLK_ADDR = 3;  // Storage register clock (latch) for address
@@ -91,9 +103,9 @@ void writeData(uint16_t address, uint8_t data) {
   digitalWrite(RCLK_DOUT, HIGH);  // Latch data
   digitalWrite(OE_DOUT, LOW);    // Enable data output
 
-  delayMicroseconds(1);          // Ensure data is stable
+  delayMicroseconds(TSETTLE);          // Ensure data is stable
   digitalWrite(WE, LOW);         // Trigger write
-  delayMicroseconds(1);          // Hold write enable
+  delayMicroseconds(TSETTLE);          // Hold write enable
   digitalWrite(WE, HIGH);        // End write
 
   digitalWrite(OE_DOUT, HIGH);   // Disable data output
@@ -117,6 +129,38 @@ uint8_t readData(uint16_t address) {
   digitalWrite(OE_SRAM, HIGH);   // Disable SRAM output
   digitalWrite(OE_ADDR, HIGH);    // Disable address output
   return data;
+}
+
+void loadpgm() {
+  Serial.println("Loading static array into memory...");
+  for (uint16_t i = 0; i < pgmSize; i++) {
+    writeData(RAM_START_ADDRESS + i, pgm[i]);
+  }
+  Serial.println("Static array loaded.");
+}
+
+void verifypgm(uint16_t startAddress) {
+  Serial.println("Verifying static array...");
+  bool verificationPassed = true;
+  
+  for (uint16_t i = 0; i < pgmSize; i++) {
+    uint8_t readValue = readData(startAddress + i);
+    if (readValue != pgm[i]) {
+      verificationPassed = false;
+      Serial.print("Mismatch at 0x");
+      Serial.print(startAddress + i, HEX);
+      Serial.print(": expected 0x");
+      Serial.print(pgm[i], HEX);
+      Serial.print(", got 0x");
+      Serial.println(readValue, HEX);
+    }
+  }
+
+  if (verificationPassed) {
+    Serial.println("Verification passed: no errors found.");
+  } else {
+    Serial.println("Verification failed: errors detected.");
+  }
 }
 
 void processCommand(String command) {
@@ -175,11 +219,24 @@ void processCommand(String command) {
     }
 
     Serial.println("Full RAM test complete.");
+  } else if (command.startsWith("load")) {
+    loadpgm();
+  } else if (command.startsWith("verify")) {
+    uint16_t startAddress = (uint16_t)strtol(&command[7], NULL, 16);
+    verifypgm(startAddress);
   } else {
     Serial.println("Invalid command.");
   }
 }
 
+
+void clearMemory() {
+  Serial.println("Clearing memory...");
+  for (uint16_t address = RAM_START_ADDRESS; address <= RAM_END_ADDRESS; address++) {
+    writeData(address, 0x00);
+  }
+  Serial.println("Memory clear complete.");
+}
 
 // Setup function
 void setup() {
@@ -198,8 +255,11 @@ void setup() {
   pinMode(WE, OUTPUT);
   pinMode(OE_SRAM, OUTPUT);
   
-  Serial.begin(9600);  // Start serial communication
+  Serial.begin(115200);  // Start serial communication
   randomSeed(analogRead(0)); // Seed the random number generator
+
+  // Clear memory on startup
+  clearMemory();
 }
 
 // Main loop
